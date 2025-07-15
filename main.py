@@ -169,7 +169,8 @@ def auto_trigger_loop():
             send_bilan_semaine()
 
         time.sleep(60)
-        @app.route('/forcer-signal')
+        
+@app.route('/forcer-signal')
 def forcer_signal():
     send_signals()
     return "✅ Signaux envoyés manuellement."
