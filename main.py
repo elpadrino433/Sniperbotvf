@@ -178,3 +178,12 @@ def forcer_signal():
 if __name__ == "__main__":
     threading.Thread(target=auto_trigger_loop).start()
     app.run(host="0.0.0.0", port=10000)
+
+if __name__ == "__main__":
+    threading.Thread(target=auto_trigger_loop).start()
+
+    # Test immédiat :
+    bot = telegram.Bot(token=BOT_TOKEN)
+    bot.send_message(chat_id=CHAT_ID, text="✅ TEST : le bot est bien connecté et actif.")
+    
+    app.run(host="0.0.0.0", port=10000)
