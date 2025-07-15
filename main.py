@@ -70,9 +70,6 @@ def send_signals():
     bot = telegram.Bot(token=BOT_TOKEN)
     matches = get_today_signals()
     if not matches:
-        bot.send_message(chat_id=CHAT_ID, text="❌ Aucun signal aujourd’hui.
-On reste patient.")
-        return
        bot.send_message(chat_id=CHAT_ID, text="❌ Aucun signal aujourd’hui. On reste patient.") 
 
     message = "🔥 Signaux du jour – CLUB SNIPER BANKS VIP 🔥\n\n"
