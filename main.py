@@ -151,7 +151,3 @@ def auto_trigger_loop():
 if __name__ == "__main__":
     threading.Thread(target=auto_trigger_loop).start()
     app.run(host="0.0.0.0", port=10000)
-if __name__ == "__main__":
-    threading.Thread(target=auto_trigger_loop).start()
-    send_signals()  # <- force l’envoi maintenant
-    app.run(host="0.0.0.0", port=10000)
