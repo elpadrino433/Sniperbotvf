@@ -8,7 +8,6 @@ import threading
 import time
 from flask import Flask
 import os
-Import asyncio
 
 BOT_TOKEN = '8180955487:AAGlr_vepQIG71ecJB9dqPquDhdgbth7fx0'
 CHAT_ID = -1002840077042
