@@ -88,15 +88,37 @@ def send_signals():
     save_signals(simples + combiné)
 
     for label, teams, cote in simples:
-        message += f"{label}\n💥 {teams}\n💰 Cote : {cote}\n🧠 Confiance : {round(min(cote / 2, 0.85)*100)} %\n💸 Mise : 2 %\n\n"
+        try:
+            team1, team2 = teams.split("–")
+            team1 = team1.strip()
+            team2 = team2.strip()
+            equipe_jouee = team1  # Par défaut, on joue l'équipe à gauche
+        except:
+            equipe_jouee = teams.strip()
+
+        message += (
+            f"{label}\n"
+            f"💥 Match : {teams}\n"
+            f"🎯 Équipe à jouer : {equipe_jouee}\n"
+            f"💰 Cote : {cote}\n"
+            f"🧠 Confiance : {round(min(cote / 2, 0.85) * 100)} %\n"
+            f"💸 Mise : 2 %\n\n"
+        )
 
     if combiné:
         total = 1
         message += "🔥 Combiné 🔥\n"
         for label, teams, cote in combiné:
-            message += f"{label} – {teams} – {cote}\n"
+            try:
+                team1, team2 = teams.split("–")
+                team1 = team1.strip()
+                equipe_jouee = team1
+            except:
+                equipe_jouee = teams.strip()
+
+            message += f"{label}\n🎯 {teams} – Équipe à jouer : {equipe_jouee} – Cote : {cote}\n"
             total *= cote
-        message += f"💰 Total combiné : {round(total, 2)}\n🧠 Confiance : 76 %\n💸 Mise : 1.5 %"
+        message += f"\n💰 Total combiné : {round(total, 2)}\n🧠 Confiance : 76 %\n💸 Mise : 1.5 %"
 
     bot.send_message(chat_id=CHAT_ID, text=message)
 
