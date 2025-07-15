@@ -176,14 +176,16 @@ def forcer_signal():
     return "✅ Signaux envoyés manuellement."
 
 if __name__ == "__main__":
-    threading.Thread(target=auto_trigger_loop).start()
-    app.run(host="0.0.0.0", port=10000)
-
-if __name__ == "__main__":
+    # Lancement de la boucle automatique
     threading.Thread(target=auto_trigger_loop).start()
 
-    # Test immédiat :
-    bot = telegram.Bot(token=BOT_TOKEN)
-    bot.send_message(chat_id=CHAT_ID, text="✅ TEST : le bot est bien connecté et actif.")
-    
+    # Test immédiat pour vérifier le chat ID
+    try:
+        bot = telegram.Bot(token=BOT_TOKEN)
+        bot.send_message(chat_id=CHAT_ID, text="✅ TEST : le bot est bien connecté et actif.")
+        print("✅ Message Telegram envoyé.")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi du message test : {e}")
+
+    # Lancer le serveur Flask
     app.run(host="0.0.0.0", port=10000)
