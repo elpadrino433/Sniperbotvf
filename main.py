@@ -5,9 +5,9 @@ from bs4 import BeautifulSoup
 import json
 import threading
 import time
+import os
 import asyncio
 from flask import Flask
-import os
 from telegram import Bot
 from telegram.request import HTTPXRequest
 
@@ -17,15 +17,26 @@ CHAT_ID = -1002840077042
 MONTREAL = pytz.timezone("America/Montreal")
 HISTORIQUE_FILE = 'historique.json'
 
-# ✅ Création du bot avec pool timeout augmenté
+# === INIT ===
 request = HTTPXRequest(pool_timeout=30.0)
 bot = Bot(token=BOT_TOKEN, request=request)
-
 app = Flask(__name__)
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 @app.route('/')
-def keep_alive():
-    return "Bot actif."
+def home():
+    return "✅ Bot actif."
+
+@app.route('/test-signal')
+def test_signal():
+    loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
+    return "✅ Message test envoyé."
+
+@app.route('/forcer-signal')
+def forcer_signal():
+    loop.create_task(send_signals())
+    return "✅ Envoi forcé déclenché."
 
 def fetch_matches(url, label):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -158,30 +169,18 @@ async def send_bilan_semaine():
 
     await bot.send_message(chat_id=CHAT_ID, text=bilan)
 
-# === GESTION DE LA BOUCLE ASYNC ET FLASK ===
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-def auto_trigger_loop():
-    while True:
-        now = datetime.datetime.now(MONTREAL)
-        if now.hour == 11 and now.minute == 30:
-            loop.create_task(send_signals())
-        if now.weekday() == 6 and now.hour == 18 and now.minute == 0:
-            loop.create_task(send_bilan_semaine())
-        time.sleep(60)
-
-@app.route('/forcer-signal')
-def force_signal():
-    loop.create_task(send_signals())
-    return "✅ Signaux envoyés manuellement."
-
-@app.route('/test-signal')
-def test_signal():
-    loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
-    return "✅ Message test envoyé."
+def start_auto_loop():
+    def loop_task():
+        while True:
+            now = datetime.datetime.now(MONTREAL)
+            if now.hour == 11 and now.minute == 30:
+                loop.create_task(send_signals())
+            if now.weekday() == 6 and now.hour == 18 and now.minute == 0:
+                loop.create_task(send_bilan_semaine())
+            time.sleep(60)
+    threading.Thread(target=loop_task, daemon=True).start()
 
 if __name__ == "__main__":
-    threading.Thread(target=auto_trigger_loop, daemon=True).start()
+    start_auto_loop()
     loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
     app.run(host="0.0.0.0", port=10000)
