@@ -1,11 +1,9 @@
 import datetime
 import pytz
 import requests
-from bs4 import BeautifulSoup
 import json
 import threading
 import time
-import os
 import asyncio
 from flask import Flask
 from telegram import Bot
@@ -14,6 +12,8 @@ from telegram.request import HTTPXRequest
 # === CONFIGURATION ===
 BOT_TOKEN = '8180955487:AAGlr_vepQIG71ecJB9dqPquDhdgbth7fx0'
 CHAT_ID = -1002840077042
+API_SPORTS_KEY = '911564e0596507ce7da914fd806bde9f'
+ODDS_API_KEY = '660f7bbee0e51e9b4cc4701d4f0484fe'
 MONTREAL = pytz.timezone("America/Montreal")
 HISTORIQUE_FILE = 'historique.json'
 
@@ -24,52 +24,22 @@ app = Flask(__name__)
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
+# === ROUTES ===
 @app.route('/')
-def home():
-    return "✅ Bot actif."
+def keep_alive():
+    return "Bot actif."
 
 @app.route('/test-signal')
 def test_signal():
     loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
-    return "✅ Message test envoyé."
+    return "✅ Test envoyé."
 
 @app.route('/forcer-signal')
-def forcer_signal():
+def force_signal():
     loop.create_task(send_signals())
-    return "✅ Envoi forcé déclenché."
+    return "✅ Signaux envoyés manuellement."
 
-def fetch_matches(url, label):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    r = requests.get(url, headers=headers)
-    soup = BeautifulSoup(r.content, 'html.parser')
-    matches = []
-    for row in soup.select('.table-main tr'):
-        teams = row.select_one('.team-name')
-        odds = row.select('.odds-nowrp')
-        if teams and len(odds) >= 2:
-            try:
-                team_names = teams.get_text(strip=True)
-                cote = float(odds[0].get_text(strip=True))
-                if cote >= 1.5:
-                    matches.append((label, team_names, cote))
-            except:
-                continue
-    return matches
-
-def get_today_signals():
-    sports = [
-        ("https://www.betexplorer.com/next/soccer/", "⚽ Foot"),
-        ("https://www.betexplorer.com/baseball/usa/mlb/", "⚾ MLB"),
-        ("https://www.betexplorer.com/basketball/usa/nba/", "🏀 NBA"),
-        ("https://www.betexplorer.com/boxing/", "🥊 Boxe"),
-    ]
-    today = datetime.datetime.now(MONTREAL)
-    if today.month >= 10 or today.month <= 4:
-        sports.append(("https://www.betexplorer.com/hockey/usa/nhl/", "🏒 NHL"))
-    all_matches = []
-    for url, label in sports:
-        all_matches.extend(fetch_matches(url, label))
-    return all_matches
+# === LOGIQUE ===
 
 def save_signals(matches):
     today = datetime.datetime.now(MONTREAL).strftime("%Y-%m-%d")
@@ -79,22 +49,64 @@ def save_signals(matches):
         with open(HISTORIQUE_FILE, 'r') as f:
             historique = json.load(f)
 
-    for label, teams, cote in matches:
+    for match in matches:
         historique.append({
             "date": today,
-            "label": label,
-            "teams": teams,
-            "cote": cote,
+            "sport": match['sport'],
+            "teams": match['teams'],
+            "cote": match['cote'],
             "result": "pending"
         })
 
     with open(HISTORIQUE_FILE, 'w') as f:
         json.dump(historique, f)
 
+def fetch_from_apis():
+    matches = []
+
+    # FOOT (via API-SPORTS)
+    headers = {
+        'x-apisports-key': API_SPORTS_KEY
+    }
+    try:
+        foot_data = requests.get("https://v3.football.api-sports.io/fixtures?next=5", headers=headers, timeout=10).json()
+        for fixture in foot_data.get("response", []):
+            teams = f"{fixture['teams']['home']['name']} – {fixture['teams']['away']['name']}"
+            matches.append({
+                "sport": "⚽ Foot",
+                "teams": teams,
+                "cote": 1.75  # Placeholder — vraie cote si tu veux la croiser
+            })
+    except Exception as e:
+        print(f"[Foot API error] {e}")
+
+    # Autres sports via The Odds API
+    try:
+        sports = [("basketball_nba", "🏀 NBA"), ("icehockey_nhl", "🏒 NHL"), ("baseball_mlb", "⚾ MLB"), ("boxing", "🥊 Boxe")]
+        for key, emoji in sports:
+            r = requests.get(
+                f"https://api.the-odds-api.com/v4/sports/{key}/odds/?apiKey={ODDS_API_KEY}&regions=us&markets=h2h",
+                timeout=10
+            )
+            data = r.json()
+            for game in data[:2]:
+                team_names = " – ".join(game["teams"])
+                cote = game["bookmakers"][0]["markets"][0]["outcomes"][0]["price"]
+                if cote >= 1.5:
+                    matches.append({
+                        "sport": emoji,
+                        "teams": team_names,
+                        "cote": cote
+                    })
+    except Exception as e:
+        print(f"[Odds API error] {e}")
+
+    return matches
+
 async def send_signals():
-    matches = get_today_signals()
+    matches = fetch_from_apis()
     if not matches:
-        await bot.send_message(chat_id=CHAT_ID, text="❌ Aucun signal aujourd’hui. On reste patient.") 
+        await bot.send_message(chat_id=CHAT_ID, text="❌ Aucun signal aujourd’hui. On reste patient.")
         return
 
     message = "🔥 Signaux du jour – CLUB SNIPER BANKS VIP 🔥\n\n"
@@ -102,85 +114,37 @@ async def send_signals():
     combiné = matches[2:6]
     save_signals(simples + combiné)
 
-    for label, teams, cote in simples:
-        try:
-            team1, team2 = teams.split("–")
-            equipe_jouee = team1.strip()
-        except:
-            equipe_jouee = teams.strip()
-
+    for m in simples:
+        equipe_jouee = m["teams"].split("–")[0].strip()
         message += (
-            f"{label}\n"
-            f"💥 Match : {teams}\n"
+            f"{m['sport']}\n"
+            f"💥 Match : {m['teams']}\n"
             f"🎯 Équipe à jouer : {equipe_jouee}\n"
-            f"💰 Cote : {cote}\n"
-            f"🧠 Confiance : {round(min(cote / 2, 0.85) * 100)} %\n"
+            f"💰 Cote : {m['cote']}\n"
+            f"🧠 Confiance : {round(min(m['cote'] / 2, 0.85) * 100)} %\n"
             f"💸 Mise : 2 %\n\n"
         )
 
     if combiné:
         total = 1
         message += "🔥 Combiné 🔥\n"
-        for label, teams, cote in combiné:
-            try:
-                team1, team2 = teams.split("–")
-                equipe_jouee = team1.strip()
-            except:
-                equipe_jouee = teams.strip()
-
-            message += f"{label}\n🎯 {teams} – Équipe à jouer : {equipe_jouee} – Cote : {cote}\n"
-            total *= cote
+        for m in combiné:
+            equipe_jouee = m["teams"].split("–")[0].strip()
+            message += f"{m['sport']}\n🎯 {m['teams']} – Équipe à jouer : {equipe_jouee} – Cote : {m['cote']}\n"
+            total *= m["cote"]
         message += f"\n💰 Total combiné : {round(total, 2)}\n🧠 Confiance : 76 %\n💸 Mise : 1.5 %"
 
     await bot.send_message(chat_id=CHAT_ID, text=message)
 
-async def send_bilan_semaine():
-    if not os.path.exists(HISTORIQUE_FILE):
-        return
+def auto_trigger_loop():
+    while True:
+        now = datetime.datetime.now(MONTREAL)
+        if now.hour == 11 and now.minute == 30:
+            loop.create_task(send_signals())
+        time.sleep(60)
 
-    with open(HISTORIQUE_FILE, 'r') as f:
-        historique = json.load(f)
-
-    this_week = []
-    today = datetime.datetime.now(MONTREAL)
-    semaine_debut = today - datetime.timedelta(days=today.weekday())
-    semaine_fin = semaine_debut + datetime.timedelta(days=6)
-
-    for entry in historique:
-        entry_date = datetime.datetime.strptime(entry['date'], "%Y-%m-%d")
-        if semaine_debut.date() <= entry_date.date() <= semaine_fin.date():
-            this_week.append(entry)
-
-    total = len(this_week)
-    if total == 0:
-        return
-
-    gagnants = int(total * 0.78)
-    perdants = total - gagnants
-    roi = round(((gagnants * 0.02) - (perdants * 0.02)) * 100, 1)
-
-    bilan = f"""📅 Bilan de la semaine – CLUB SNIPER BANKS VIP 🔥
-📌 Période : {semaine_debut.strftime('%d')} au {semaine_fin.strftime('%d %B %Y')}
-🎯 Total de signaux : {total}
-✅ Gagnants : {gagnants}
-❌ Perdants : {perdants}
-🎯 Taux de réussite : {round(gagnants / total * 100, 1)} %
-💸 ROI net : {roi} %"""
-
-    await bot.send_message(chat_id=CHAT_ID, text=bilan)
-
-def start_auto_loop():
-    def loop_task():
-        while True:
-            now = datetime.datetime.now(MONTREAL)
-            if now.hour == 11 and now.minute == 30:
-                loop.create_task(send_signals())
-            if now.weekday() == 6 and now.hour == 18 and now.minute == 0:
-                loop.create_task(send_bilan_semaine())
-            time.sleep(60)
-    threading.Thread(target=loop_task, daemon=True).start()
-
+# === MAIN ===
 if __name__ == "__main__":
-    start_auto_loop()
+    threading.Thread(target=auto_trigger_loop, daemon=True).start()
     loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
     app.run(host="0.0.0.0", port=10000)
