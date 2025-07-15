@@ -1,3 +1,5 @@
+from analytics.api_sports import get_upcoming, get_odds
+from analytics.boxing_odds import get_boxing_fights
 import datetime
 import pytz
 import requests
@@ -42,19 +44,46 @@ def fetch_matches(url, label):
     return matches
 
 def get_today_signals():
-    sports = [
-        ("https://www.betexplorer.com/next/soccer/", "⚽ Foot"),
-        ("https://www.betexplorer.com/baseball/usa/mlb/", "⚾ MLB"),
-        ("https://www.betexplorer.com/basketball/usa/nba/", "🏀 NBA"),
-        ("https://www.betexplorer.com/boxing/", "🥊 Boxe"),
-    ]
-    today = datetime.datetime.now(MONTREAL)
-    if today.month >= 10 or today.month <= 4:
-        sports.append(("https://www.betexplorer.com/hockey/usa/nhl/", "🏒 NHL"))
-    all_matches = []
-    for url, label in sports:
-        all_matches.extend(fetch_matches(url, label))
-    return all_matches
+    signals = []
+
+    # ⚽ FOOT
+    for fx in get_upcoming("football"):
+        home = fx["teams"]["home"]["name"]
+        away = fx["teams"]["away"]["name"]
+        fixture = fx["fixture"]["id"]
+        odds = get_odds("football", fixture)
+        if odds and odds[0]["bookmakers"]:
+            price = odds[0]["bookmakers"][0]["markets"][0]["outcomes"][0]["price"]
+            if price >= 1.5:
+                signals.append(("⚽ Foot", f"{home}–{away}", price))
+
+    # 🏀 NBA
+    for fx in get_upcoming("basketball"):
+        home = fx["teams"]["home"]["name"]
+        away = fx["teams"]["away"]["name"]
+        signals.append(("🏀 NBA", f"{home}–{away}", 1.5))
+
+    # ⚾ MLB
+    for fx in get_upcoming("baseball"):
+        home = fx["teams"]["home"]["name"]
+        away = fx["teams"]["away"]["name"]
+        signals.append(("⚾ MLB", f"{home}–{away}", 1.5))
+
+    # 🏒 NHL
+    for fx in get_upcoming("hockey"):
+        home = fx["teams"]["home"]["name"]
+        away = fx["teams"]["away"]["name"]
+        signals.append(("🏒 NHL", f"{home}–{away}", 1.5))
+
+    # 🥊 BOXE
+    for fight in get_boxing_fights():
+        home = fight["home_team"]
+        away = fight["away_team"]
+        price = fight["bookmakers"][0]["markets"][0]["outcomes"][0]["price"]
+        if price >= 1.5:
+            signals.append(("🥊 Boxe", f"{home}–{away}", price))
+
+    return signals
 
 def save_signals(matches):
     today = datetime.datetime.now(MONTREAL).strftime("%Y-%m-%d")
