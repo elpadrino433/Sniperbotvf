@@ -177,7 +177,36 @@ def test_signal():
     asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
     return "✅ Message test envoyé."
 
+import asyncio
+
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+def auto_trigger_loop():
+    while True:
+        now = datetime.datetime.now(MONTREAL)
+        if now.hour == 11 and now.minute == 30:
+            loop.create_task(send_signals())
+        if now.weekday() == 6 and now.hour == 18 and now.minute == 0:
+            loop.create_task(send_bilan_semaine())
+        time.sleep(60)
+
+@app.route('/forcer-signal')
+def force_signal():
+    loop.create_task(send_signals())
+    return "✅ Signaux envoyés manuellement."
+
+@app.route('/test-signal')
+def test_signal():
+    loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
+    return "✅ Message test envoyé."
+
 if __name__ == "__main__":
-    threading.Thread(target=auto_trigger_loop).start()
-    asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
+    # Lancer la boucle auto dans un thread séparé
+    threading.Thread(target=auto_trigger_loop, daemon=True).start()
+
+    # Envoyer un message de confirmation de démarrage
+    loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
+
+    # Démarrer le serveur Flask
     app.run(host="0.0.0.0", port=10000)
