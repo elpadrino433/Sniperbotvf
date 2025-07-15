@@ -154,14 +154,14 @@ async def send_bilan_semaine():
 
     await bot.send_message(chat_id=CHAT_ID, text=bilan)
 
-def auto_trigger_loop():
+async def auto_trigger_loop_async():
     while True:
         now = datetime.datetime.now(MONTREAL)
         if now.hour == 11 and now.minute == 30:
-            asyncio.run(send_signals())
+            await send_signals()
         if now.weekday() == 6 and now.hour == 18 and now.minute == 0:
-            asyncio.run(send_bilan_semaine())
-        time.sleep(60)
+            await send_bilan_semaine()
+        await asyncio.sleep(60)
 
 @app.route('/forcer-signal')
 def force_signal():
@@ -172,8 +172,11 @@ def force_signal():
 def test_signal():
     asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
     return "✅ Message test envoyé."
-
+    
 if __name__ == "__main__":
-    threading.Thread(target=auto_trigger_loop).start()
-    asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
-    app.run(host="0.0.0.0", port=10000)
+    async def main():
+        asyncio.create_task(auto_trigger_loop_async())
+        await bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !")
+        app.run(host="0.0.0.0", port=10000)
+
+    asyncio.run(main())
