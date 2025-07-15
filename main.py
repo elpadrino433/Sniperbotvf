@@ -1,17 +1,28 @@
-from telegram.ext import Application, MessageHandler, filters
-from telegram import Update
 import asyncio
+from telegram import Bot
 
 BOT_TOKEN = '8180955487:AAGlr_vepQIG71ecJB9dqPquDhdgbth7fx0'
+CHAT_ID = -1002840077042
 
-async def get_chat_id(update: Update, context):
-    chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id=chat_id, text=f"✅ Ton chat ID est : `{chat_id}`", parse_mode='Markdown')
 
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.ALL, get_chat_id))
-    app.run_polling()
+async def send_test_signal():
+    message = """
+🔥 Signal de test – CLUB SNIPER BANKS VIP 🔥
+
+💥 PSG vs Lyon  
+💰 Cote : 1.72  
+🧠 Confiance : 84 %  
+💸 Mise : 2 %
+
+🔥 Combiné 🔥  
+⚾ Yankees vs Red Sox – 1.65  
+🏀 Lakers vs Celtics – 1.70  
+💰 Total combiné : 2.81  
+🧠 Confiance : 76 %  
+💸 Mise : 1.5 %
+    """
+    bot = Bot(token=BOT_TOKEN)
+    await bot.send_message(chat_id=CHAT_ID, text=message)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(send_test_signal())
