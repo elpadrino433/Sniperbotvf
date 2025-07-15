@@ -1,45 +1,67 @@
 import datetime
 import pytz
 import requests
+from bs4 import BeautifulSoup
 import json
 import threading
 import time
+import os
 import asyncio
 from flask import Flask
 from telegram import Bot
 from telegram.request import HTTPXRequest
 
 # === CONFIGURATION ===
-BOT_TOKEN = '8180955487:AAGlr_vepQIG71ecJB9dqPquDhdgbth7fx0'
-CHAT_ID = -1002840077042
-API_SPORTS_KEY = '911564e0596507ce7da914fd806bde9f'
-ODDS_API_KEY = '660f7bbee0e51e9b4cc4701d4f0484fe'
+BOT_TOKEN = os.getenv("BOT_TOKEN", "TON_TOKEN_ICI")  # Change manuellement si tu ne veux pas utiliser Render env var
+CHAT_ID = int(os.getenv("CHAT_ID", "-1002840077042"))  # Change aussi ici si besoin
 MONTREAL = pytz.timezone("America/Montreal")
 HISTORIQUE_FILE = 'historique.json'
 
-# === INIT ===
 request = HTTPXRequest(pool_timeout=30.0)
 bot = Bot(token=BOT_TOKEN, request=request)
+
 app = Flask(__name__)
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
 
-# === ROUTES ===
 @app.route('/')
-def keep_alive():
-    return "Bot actif."
+def home():
+    return "Bot SNIPER actif."
 
-@app.route('/test-signal')
-def test_signal():
-    loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
-    return "✅ Test envoyé."
+def fetch_matches(url, label):
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(r.content, 'html.parser')
+        matches = []
+        for row in soup.select('.table-main tr'):
+            teams = row.select_one('.team-name')
+            odds = row.select('.odds-nowrp')
+            if teams and len(odds) >= 2:
+                try:
+                    team_names = teams.get_text(strip=True)
+                    cote = float(odds[0].get_text(strip=True))
+                    if cote >= 1.5:
+                        matches.append((label, team_names, cote))
+                except:
+                    continue
+        return matches
+    except Exception as e:
+        print(f"[ERREUR] fetch_matches: {e}")
+        return []
 
-@app.route('/forcer-signal')
-def force_signal():
-    loop.create_task(send_signals())
-    return "✅ Signaux envoyés manuellement."
-
-# === LOGIQUE ===
+def get_today_signals():
+    sports = [
+        ("https://www.betexplorer.com/next/soccer/", "⚽ Foot"),
+        ("https://www.betexplorer.com/baseball/usa/mlb/", "⚾ MLB"),
+        ("https://www.betexplorer.com/basketball/usa/nba/", "🏀 NBA"),
+        ("https://www.betexplorer.com/boxing/", "🥊 Boxe"),
+    ]
+    today = datetime.datetime.now(MONTREAL)
+    if today.month >= 10 or today.month <= 4:
+        sports.append(("https://www.betexplorer.com/hockey/usa/nhl/", "🏒 NHL"))
+    all_matches = []
+    for url, label in sports:
+        all_matches.extend(fetch_matches(url, label))
+    return all_matches
 
 def save_signals(matches):
     today = datetime.datetime.now(MONTREAL).strftime("%Y-%m-%d")
@@ -49,62 +71,20 @@ def save_signals(matches):
         with open(HISTORIQUE_FILE, 'r') as f:
             historique = json.load(f)
 
-    for match in matches:
+    for label, teams, cote in matches:
         historique.append({
             "date": today,
-            "sport": match['sport'],
-            "teams": match['teams'],
-            "cote": match['cote'],
+            "label": label,
+            "teams": teams,
+            "cote": cote,
             "result": "pending"
         })
 
     with open(HISTORIQUE_FILE, 'w') as f:
         json.dump(historique, f)
 
-def fetch_from_apis():
-    matches = []
-
-    # FOOT (via API-SPORTS)
-    headers = {
-        'x-apisports-key': API_SPORTS_KEY
-    }
-    try:
-        foot_data = requests.get("https://v3.football.api-sports.io/fixtures?next=5", headers=headers, timeout=10).json()
-        for fixture in foot_data.get("response", []):
-            teams = f"{fixture['teams']['home']['name']} – {fixture['teams']['away']['name']}"
-            matches.append({
-                "sport": "⚽ Foot",
-                "teams": teams,
-                "cote": 1.75  # Placeholder — vraie cote si tu veux la croiser
-            })
-    except Exception as e:
-        print(f"[Foot API error] {e}")
-
-    # Autres sports via The Odds API
-    try:
-        sports = [("basketball_nba", "🏀 NBA"), ("icehockey_nhl", "🏒 NHL"), ("baseball_mlb", "⚾ MLB"), ("boxing", "🥊 Boxe")]
-        for key, emoji in sports:
-            r = requests.get(
-                f"https://api.the-odds-api.com/v4/sports/{key}/odds/?apiKey={ODDS_API_KEY}&regions=us&markets=h2h",
-                timeout=10
-            )
-            data = r.json()
-            for game in data[:2]:
-                team_names = " – ".join(game["teams"])
-                cote = game["bookmakers"][0]["markets"][0]["outcomes"][0]["price"]
-                if cote >= 1.5:
-                    matches.append({
-                        "sport": emoji,
-                        "teams": team_names,
-                        "cote": cote
-                    })
-    except Exception as e:
-        print(f"[Odds API error] {e}")
-
-    return matches
-
 async def send_signals():
-    matches = fetch_from_apis()
+    matches = get_today_signals()
     if not matches:
         await bot.send_message(chat_id=CHAT_ID, text="❌ Aucun signal aujourd’hui. On reste patient.")
         return
@@ -114,37 +94,55 @@ async def send_signals():
     combiné = matches[2:6]
     save_signals(simples + combiné)
 
-    for m in simples:
-        equipe_jouee = m["teams"].split("–")[0].strip()
+    for label, teams, cote in simples:
+        try:
+            team1, team2 = teams.split("–")
+            equipe_jouee = team1.strip()
+        except:
+            equipe_jouee = teams.strip()
+
         message += (
-            f"{m['sport']}\n"
-            f"💥 Match : {m['teams']}\n"
+            f"{label}\n"
+            f"💥 Match : {teams}\n"
             f"🎯 Équipe à jouer : {equipe_jouee}\n"
-            f"💰 Cote : {m['cote']}\n"
-            f"🧠 Confiance : {round(min(m['cote'] / 2, 0.85) * 100)} %\n"
+            f"💰 Cote : {cote}\n"
+            f"🧠 Confiance : {round(min(cote / 2, 0.85) * 100)} %\n"
             f"💸 Mise : 2 %\n\n"
         )
 
     if combiné:
         total = 1
         message += "🔥 Combiné 🔥\n"
-        for m in combiné:
-            equipe_jouee = m["teams"].split("–")[0].strip()
-            message += f"{m['sport']}\n🎯 {m['teams']} – Équipe à jouer : {equipe_jouee} – Cote : {m['cote']}\n"
-            total *= m["cote"]
+        for label, teams, cote in combiné:
+            try:
+                team1, team2 = teams.split("–")
+                equipe_jouee = team1.strip()
+            except:
+                equipe_jouee = teams.strip()
+            message += f"{label}\n🎯 {teams} – Équipe à jouer : {equipe_jouee} – Cote : {cote}\n"
+            total *= cote
         message += f"\n💰 Total combiné : {round(total, 2)}\n🧠 Confiance : 76 %\n💸 Mise : 1.5 %"
 
     await bot.send_message(chat_id=CHAT_ID, text=message)
 
-def auto_trigger_loop():
-    while True:
-        now = datetime.datetime.now(MONTREAL)
-        if now.hour == 11 and now.minute == 30:
-            loop.create_task(send_signals())
-        time.sleep(60)
+@app.route('/forcer-signal')
+def forcer_signal():
+    asyncio.run(send_signals())
+    return "✅ Signal forcé envoyé."
 
-# === MAIN ===
+@app.route('/test-signal')
+def test_signal():
+    asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
+    return "✅ Message test envoyé."
+
+# === LANCEMENT PRINCIPAL ===
 if __name__ == "__main__":
-    threading.Thread(target=auto_trigger_loop, daemon=True).start()
-    loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
+    # Lancer signal test puis vrai signal
+    try:
+        asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
+        asyncio.run(send_signals())
+    except Exception as e:
+        print(f"[ERREUR démarrage] {e}")
+
+    # Lancer serveur
     app.run(host="0.0.0.0", port=10000)
