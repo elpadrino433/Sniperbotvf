@@ -2,20 +2,22 @@ import datetime
 import pytz
 import requests
 from bs4 import BeautifulSoup
-import telegram
 import json
 import threading
 import time
 from flask import Flask
 import os
+import asyncio
+from telegram import Bot
 
+# === CONFIGURATION ===
 BOT_TOKEN = '8180955487:AAGlr_vepQIG71ecJB9dqPquDhdgbth7fx0'
 CHAT_ID = -1002840077042
 MONTREAL = pytz.timezone("America/Montreal")
-DATA_FILE = 'data.json'
 HISTORIQUE_FILE = 'historique.json'
 
 app = Flask(__name__)
+bot = Bot(token=BOT_TOKEN)
 
 @app.route('/')
 def keep_alive():
@@ -56,7 +58,6 @@ def get_today_signals():
 
 def save_signals(matches):
     today = datetime.datetime.now(MONTREAL).strftime("%Y-%m-%d")
-    jour = datetime.datetime.now(MONTREAL).isoweekday()
     historique = []
 
     if os.path.exists(HISTORIQUE_FILE):
@@ -75,11 +76,10 @@ def save_signals(matches):
     with open(HISTORIQUE_FILE, 'w') as f:
         json.dump(historique, f)
 
-def send_signals():
-    bot = telegram.Bot(token=BOT_TOKEN)
+async def send_signals():
     matches = get_today_signals()
     if not matches:
-        bot.send_message(chat_id=CHAT_ID, text="❌ Aucun signal aujourd’hui. On reste patient.") 
+        await bot.send_message(chat_id=CHAT_ID, text="❌ Aucun signal aujourd’hui. On reste patient.") 
         return
 
     message = "🔥 Signaux du jour – CLUB SNIPER BANKS VIP 🔥\n\n"
@@ -90,9 +90,7 @@ def send_signals():
     for label, teams, cote in simples:
         try:
             team1, team2 = teams.split("–")
-            team1 = team1.strip()
-            team2 = team2.strip()
-            equipe_jouee = team1  # Par défaut, on joue l'équipe à gauche
+            equipe_jouee = team1.strip()
         except:
             equipe_jouee = teams.strip()
 
@@ -111,8 +109,7 @@ def send_signals():
         for label, teams, cote in combiné:
             try:
                 team1, team2 = teams.split("–")
-                team1 = team1.strip()
-                equipe_jouee = team1
+                equipe_jouee = team1.strip()
             except:
                 equipe_jouee = teams.strip()
 
@@ -120,10 +117,9 @@ def send_signals():
             total *= cote
         message += f"\n💰 Total combiné : {round(total, 2)}\n🧠 Confiance : 76 %\n💸 Mise : 1.5 %"
 
-    bot.send_message(chat_id=CHAT_ID, text=message)
+    await bot.send_message(chat_id=CHAT_ID, text=message)
 
-def send_bilan_semaine():
-    bot = telegram.Bot(token=BOT_TOKEN)
+async def send_bilan_semaine():
     if not os.path.exists(HISTORIQUE_FILE):
         return
 
@@ -132,8 +128,8 @@ def send_bilan_semaine():
 
     this_week = []
     today = datetime.datetime.now(MONTREAL)
-    semaine_debut = today - datetime.timedelta(days=today.weekday())  # lundi
-    semaine_fin = semaine_debut + datetime.timedelta(days=6)          # dimanche
+    semaine_debut = today - datetime.timedelta(days=today.weekday())
+    semaine_fin = semaine_debut + datetime.timedelta(days=6)
 
     for entry in historique:
         entry_date = datetime.datetime.strptime(entry['date'], "%Y-%m-%d")
@@ -144,7 +140,7 @@ def send_bilan_semaine():
     if total == 0:
         return
 
-    gagnants = int(total * 0.78)  # estimation simple
+    gagnants = int(total * 0.78)
     perdants = total - gagnants
     roi = round(((gagnants * 0.02) - (perdants * 0.02)) * 100, 1)
 
@@ -156,32 +152,28 @@ def send_bilan_semaine():
 🎯 Taux de réussite : {round(gagnants / total * 100, 1)} %
 💸 ROI net : {roi} %"""
 
-    bot.send_message(chat_id=CHAT_ID, text=bilan)
+    await bot.send_message(chat_id=CHAT_ID, text=bilan)
 
 def auto_trigger_loop():
     while True:
         now = datetime.datetime.now(MONTREAL)
         if now.hour == 11 and now.minute == 30:
-            send_signals()
-
-        # Bilan chaque dimanche à 18h00
+            asyncio.run(send_signals())
         if now.weekday() == 6 and now.hour == 18 and now.minute == 0:
-            send_bilan_semaine()
-
+            asyncio.run(send_bilan_semaine())
         time.sleep(60)
-        
+
 @app.route('/forcer-signal')
-def forcer_signal():
-    send_signals()
+def force_signal():
+    asyncio.run(send_signals())
     return "✅ Signaux envoyés manuellement."
 
+@app.route('/test-signal')
+def test_signal():
+    asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
+    return "✅ Message test envoyé."
+
 if __name__ == "__main__":
-    # Lancer la boucle automatique des signaux et bilans
     threading.Thread(target=auto_trigger_loop).start()
-
-    # Message test pour valider la connexion du bot
-    bot = telegram.Bot(token=BOT_TOKEN)
-    bot.send_message(chat_id=CHAT_ID, text="✅ TEST : le bot est bien connecté et actif.")
-
-    # Lancer le serveur Flask
+    asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
     app.run(host="0.0.0.0", port=10000)
