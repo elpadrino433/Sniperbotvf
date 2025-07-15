@@ -9,7 +9,7 @@ import asyncio
 from flask import Flask
 import os
 from telegram import Bot
-from telegram.request import HTTPXRequest  # ✅ gestion du pool améliorée
+from telegram.request import HTTPXRequest
 
 # === CONFIGURATION ===
 BOT_TOKEN = '8180955487:AAGlr_vepQIG71ecJB9dqPquDhdgbth7fx0'
@@ -158,27 +158,7 @@ async def send_bilan_semaine():
 
     await bot.send_message(chat_id=CHAT_ID, text=bilan)
 
-def auto_trigger_loop():
-    while True:
-        now = datetime.datetime.now(MONTREAL)
-        if now.hour == 11 and now.minute == 30:
-            asyncio.run(send_signals())
-        if now.weekday() == 6 and now.hour == 18 and now.minute == 0:
-            asyncio.run(send_bilan_semaine())
-        time.sleep(60)
-
-@app.route('/forcer-signal')
-def force_signal():
-    asyncio.run(send_signals())
-    return "✅ Signaux envoyés manuellement."
-
-@app.route('/test-signal')
-def test_signal():
-    asyncio.run(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Ceci est un signal envoyé par le bot SNIPER."))
-    return "✅ Message test envoyé."
-
-import asyncio
-
+# === GESTION DE LA BOUCLE ASYNC ET FLASK ===
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -202,11 +182,6 @@ def test_signal():
     return "✅ Message test envoyé."
 
 if __name__ == "__main__":
-    # Lancer la boucle auto dans un thread séparé
     threading.Thread(target=auto_trigger_loop, daemon=True).start()
-
-    # Envoyer un message de confirmation de démarrage
     loop.create_task(bot.send_message(chat_id=CHAT_ID, text="✅ TEST : Le bot est actif et connecté !"))
-
-    # Démarrer le serveur Flask
     app.run(host="0.0.0.0", port=10000)
